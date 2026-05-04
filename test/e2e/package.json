@@ -35,5 +35,8 @@
     "typescript": "5.9.3",
     "wait-on": "9.0.3",
     "yamljs": "0.3.0"
+  },
+  "overrides": {
+    "uuid": "14.0.0"
   }
 }
