@@ -29,6 +29,32 @@ import (
 	"github.com/ory/x/sqlxx"
 )
 
+// TestCreateIdentities_WritesExtraColumns verifies that WithExtraColumns is
+// forwarded from CreateIdentities down to the batch INSERT.
+func TestCreateIdentities_WritesExtraColumns(t *testing.T) {
+	_, reg := pkg.NewRegistryDefaultWithDSN(t, dbal.NewSQLiteTestDatabase(t))
+	_, p := testhelpers.NewNetwork(t, t.Context(), reg.Persister())
+
+	require.NoError(t,
+		p.GetConnection(t.Context()).RawQuery(`ALTER TABLE identities ADD COLUMN extra_foo TEXT`).Exec(),
+	)
+
+	ctx := testhelpers.WithDefaultIdentitySchemaFromRaw(t.Context(), []byte(`{"$id":"test","type":"object"}`))
+
+	ident := id.NewIdentity("")
+	require.NoError(t, p.CreateIdentities(ctx, []*id.Identity{ident},
+		id.WithExtraColumns([]id.ExtraColumn{{K: "extra_foo", V: "bar"}}),
+	))
+
+	var got string
+	require.NoError(t,
+		p.GetConnection(t.Context()).RawQuery(
+			`SELECT extra_foo FROM identities WHERE id = ?`, ident.ID,
+		).First(&got),
+	)
+	assert.Equal(t, "bar", got)
+}
+
 func TestNonStandardCredentialTypes(t *testing.T) {
 	_, reg := pkg.NewRegistryDefaultWithDSN(t, dbal.NewSQLiteTestDatabase(t))
 	_, p := testhelpers.NewNetwork(t, t.Context(), reg.Persister())

@@ -92,7 +92,8 @@ sdk: .bin/ory node_modules
 		-c github.com/ory/kratos \
 		-c github.com/ory/x/healthx \
 		-c github.com/ory/x/crdbx \
-		-c github.com/ory/x/openapix
+		-c github.com/ory/x/openapix \
+		-c github.com/ory/x/region
 	ory dev swagger sanitize ./spec/swagger.json
 	../../.bin/swagger validate ./spec/swagger.json
 	CIRCLE_PROJECT_USERNAME=ory CIRCLE_PROJECT_REPONAME=kratos \

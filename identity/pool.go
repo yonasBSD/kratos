@@ -7,6 +7,7 @@ import (
 	"context"
 
 	"github.com/ory/kratos/x"
+	"github.com/ory/pop/v6"
 	"github.com/ory/x/crdbx"
 	"github.com/ory/x/pagination/keysetpagination"
 	"github.com/ory/x/sqlxx"
@@ -20,6 +21,22 @@ func NewUpdateIdentityOptions(opts []UpdateIdentityModifier) UpdateIdentityOptio
 		opt(&o)
 	}
 	return o
+}
+
+// NewCreateIdentitiesOptions parses CreateIdentities modifiers.
+func NewCreateIdentitiesOptions(opts []CreateIdentitiesModifier) *CreateIdentitiesOptions {
+	o := &CreateIdentitiesOptions{}
+	for _, opt := range opts {
+		opt(o)
+	}
+	return o
+}
+
+// WithExtraColumns appends fixed (key, value) columns to a batch insert.
+func WithExtraColumns(cols []ExtraColumn) CreateIdentitiesModifier {
+	return func(o *CreateIdentitiesOptions) {
+		o.ExtraColumns = append(o.ExtraColumns, cols...)
+	}
 }
 
 // DiffAgainst instructs UpdateIdentity to attempt a minimal update of the
@@ -50,6 +67,16 @@ type (
 		ConsistencyLevel             crdbx.ConsistencyLevel
 		StatementTransformer         func(string) string
 
+		// ColumnsTransformer rewrites the SELECT column list to add extra
+		// columns the persister scans. Must be set together with RowScanner;
+		// the persister rejects the call if only one is provided.
+		ColumnsTransformer func(string) string
+
+		// RowScanner replaces the default scan into []Identity to consume
+		// the extra columns added by ColumnsTransformer. Must be set together
+		// with ColumnsTransformer.
+		RowScanner func(con *pop.Connection, query string, args []any) ([]Identity, error)
+
 		// DEPRECATED
 		PagePagination *x.Page
 	}
@@ -58,6 +85,19 @@ type (
 	UpdateIdentityOptions  struct {
 		fromDatabase *Identity
 	}
+
+	// ExtraColumn carries a (key, value) pair for an extra SQL column on a
+	// batch insert (e.g. crdb_region) without coupling Identity to it.
+	ExtraColumn struct {
+		K string
+		V any
+	}
+
+	CreateIdentitiesOptions struct {
+		ExtraColumns []ExtraColumn
+	}
+
+	CreateIdentitiesModifier func(*CreateIdentitiesOptions)
 
 	Pool interface {
 		// ListIdentities lists all identities in the store given the page and itemsPerPage.
@@ -111,7 +151,7 @@ type (
 
 		// CreateIdentities creates multiple identities. It is capable of setting credentials without encoding. Will return an error
 		// if identity exists, backend connectivity is broken, or trait validation fails.
-		CreateIdentities(context.Context, ...*Identity) error
+		CreateIdentities(ctx context.Context, identities []*Identity, opts ...CreateIdentitiesModifier) error
 
 		// UpdateIdentity updates an identity including its confidential / privileged / protected data.
 		UpdateIdentity(context.Context, *Identity, ...UpdateIdentityModifier) error

@@ -502,7 +502,7 @@ func Benchmark_BatchCreateIdentities(b *testing.B) {
 											identities[j] = identity.NewTestIdentity(1, prefix, j)
 										}
 
-										return p.CreateIdentities(ctx, identities...)
+										return p.CreateIdentities(ctx, identities)
 									})
 								}
 								assert.NoError(b, wg.Wait())

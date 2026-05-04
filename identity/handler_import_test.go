@@ -792,3 +792,58 @@ func getCodeValues(codes []RecoveryCode) []string {
 	}
 	return values
 }
+
+// TestBatchImport_RegionWireThrough verifies that identityFromCreateIdentityBody
+// correctly propagates the Region field from CreateIdentityBody to the resulting
+// Identity for each entry in a batch import. This ensures the multi-region
+// persister receives identities with the correct region so it can route INSERTs
+// to the right CockroachDB region.
+func TestBatchImport_RegionWireThrough(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	// A minimal handler is sufficient: importCredentials is a no-op when
+	// Credentials is nil, so no registry wiring is needed.
+	h := &Handler{}
+
+	testCases := []struct {
+		name           string
+		body           *CreateIdentityBody
+		expectedRegion string
+	}{
+		{
+			name: "region eu-central is propagated",
+			body: &CreateIdentityBody{
+				SchemaID: "default",
+				Traits:   json.RawMessage(`{"bar":"baz"}`),
+				Region:   "eu-central",
+			},
+			expectedRegion: "eu-central",
+		},
+		{
+			name: "region us-west is propagated",
+			body: &CreateIdentityBody{
+				SchemaID: "default",
+				Traits:   json.RawMessage(`{"bar":"baz"}`),
+				Region:   "us-west",
+			},
+			expectedRegion: "us-west",
+		},
+		{
+			name: "empty region is preserved as empty",
+			body: &CreateIdentityBody{
+				SchemaID: "default",
+				Traits:   json.RawMessage(`{"bar":"baz"}`),
+			},
+			expectedRegion: "",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ident, err := h.identityFromCreateIdentityBody(ctx, tc.body)
+			require.NoError(t, err)
+			assert.Equal(t, tc.expectedRegion, string(ident.Region))
+		})
+	}
+}

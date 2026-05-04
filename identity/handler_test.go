@@ -1762,6 +1762,35 @@ func TestHandler(t *testing.T) {
 				})
 			}
 		})
+
+		t.Run("case=region per entry is accepted and identities are created", func(t *testing.T) {
+			// Each entry in the batch payload carries a distinct region value. The
+			// endpoint must accept the region field without error and create all
+			// identities successfully. Region is db:"-" in OSS so it is not stored in
+			// the database, but the JSON parser must recognise the field (strict mode
+			// would return 400 for unknown fields).
+			patches := []*identity.BatchIdentityPatch{
+				{Create: &identity.CreateIdentityBody{
+					SchemaID: "default",
+					Traits:   json.RawMessage(`{"bar":"region-eu"}`),
+					Region:   "eu-central",
+				}},
+				{Create: &identity.CreateIdentityBody{
+					SchemaID: "default",
+					Traits:   json.RawMessage(`{"bar":"region-us"}`),
+					Region:   "us-west",
+				}},
+			}
+			req := &identity.BatchPatchIdentitiesBody{Identities: patches}
+			res := send(t, adminTS, "PATCH", "/identities", http.StatusOK, req)
+			require.Len(t, res.Get("identities").Array(), 2, "%s", res.Raw)
+
+			// Both entries must be created successfully, not rejected as errors.
+			assert.Equal(t, "create", res.Get("identities.0.action").String(), "%s", res.Raw)
+			assert.Equal(t, "create", res.Get("identities.1.action").String(), "%s", res.Raw)
+			assert.NotEmpty(t, res.Get("identities.0.identity").String(), "%s", res.Raw)
+			assert.NotEmpty(t, res.Get("identities.1.identity").String(), "%s", res.Raw)
+		})
 	})
 
 	t.Run("case=PATCH update of state should update state changed at timestamp", func(t *testing.T) {
@@ -2050,7 +2079,7 @@ func TestHandler(t *testing.T) {
 		for name, ts := range map[string]*httptest.Server{"public": publicTS, "admin": adminTS} {
 			t.Run("endpoint="+name, func(t *testing.T) {
 				res := send(t, ts, "PATCH", "/identities/"+i.ID.String(), http.StatusBadRequest, nil)
-				assert.Equal(t, res.Get("error.message").Str, "invalid state detected", res.Raw)
+				assert.Equal(t, "unexpected end of JSON input", res.Get("error.message").Str, res.Raw)
 			})
 		}
 	})
@@ -2919,7 +2948,7 @@ func TestHandler(t *testing.T) {
 			toCreate = append(toCreate, i)
 		}
 
-		require.NoError(t, reg.PrivilegedIdentityPool().CreateIdentities(context.Background(), toCreate...))
+		require.NoError(t, reg.PrivilegedIdentityPool().CreateIdentities(context.Background(), toCreate))
 
 		for _, perPage := range []int{10, 50, 100, 500} {
 			t.Run(fmt.Sprintf("perPage=%d", perPage), func(t *testing.T) {
@@ -3075,4 +3104,189 @@ func getCodeValues(codes []identity.RecoveryCode) []string {
 		values = append(values, code.Code)
 	}
 	return values
+}
+
+func TestHandler_Region(t *testing.T) {
+	t.Parallel()
+
+	_, reg := pkg.NewFastRegistryWithMocks(t,
+		configx.WithValues(testhelpers.IdentitySchemasConfig(map[string]string{
+			"default": "file://./stub/identity.schema.json",
+		})),
+	)
+
+	_, adminTS := testhelpers.NewKratosServerWithCSRF(t, reg)
+
+	send := func(t *testing.T, method, href string, expectCode int, body interface{}) gjson.Result {
+		t.Helper()
+		var b bytes.Buffer
+		switch raw := body.(type) {
+		case json.RawMessage:
+			b = *bytes.NewBuffer(raw)
+		default:
+			if body != nil {
+				require.NoError(t, json.NewEncoder(&b).Encode(body))
+			}
+		}
+		req, err := http.NewRequest(method, adminTS.URL+href, &b)
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		res, err := adminTS.Client().Do(req)
+		require.NoError(t, err)
+		respBody, err := io.ReadAll(res.Body)
+		require.NoError(t, err)
+		require.NoError(t, res.Body.Close())
+		require.EqualValues(t, expectCode, res.StatusCode, "%s", respBody)
+		return gjson.ParseBytes(respBody)
+	}
+
+	t.Run("case=POST /admin/identities binds region field", func(t *testing.T) {
+		res := send(t, "POST", "/identities", http.StatusCreated,
+			json.RawMessage(`{"schema_id":"default","traits":{"bar":"baz"},"region":"eu-central"}`),
+		)
+		assert.Equal(t, "eu-central", res.Get("region").String(), "%s", res.Raw)
+	})
+
+	t.Run("case=POST /admin/identities returns region in create response", func(t *testing.T) {
+		// The create handler binds Region from the request body and returns it in
+		// the 201 response. OSS persists Region in-memory only (db:"-"), so the
+		// field is present in the create response even though a subsequent GET
+		// will not include it (no backing column in OSS SQLite).
+		created := send(t, "POST", "/identities", http.StatusCreated,
+			json.RawMessage(`{"schema_id":"default","traits":{"bar":"baz"},"region":"us-west"}`),
+		)
+		assert.Equal(t, "us-west", created.Get("region").String(), "%s", created.Raw)
+		assert.NotEmpty(t, created.Get("id").String(), "%s", created.Raw)
+	})
+
+	t.Run("case=PATCH /admin/identities/{id} replace /region", func(t *testing.T) {
+		// Create an identity with a region.
+		created := send(t, "POST", "/identities", http.StatusCreated,
+			json.RawMessage(`{"schema_id":"default","traits":{"bar":"baz"},"region":"eu-central"}`),
+		)
+		id := created.Get("id").String()
+		require.NotEmpty(t, id)
+
+		res := send(t, "PATCH", "/identities/"+id, http.StatusOK,
+			json.RawMessage(`[{"op":"replace","path":"/region","value":"us-west"}]`),
+		)
+		// PATCH response includes the updated region in the body.
+		assert.Equal(t, "us-west", res.Get("region").String(), "%s", res.Raw)
+	})
+
+	t.Run("case=PATCH /admin/identities/{id} add /region", func(t *testing.T) {
+		// Create an identity without a region.
+		created := send(t, "POST", "/identities", http.StatusCreated,
+			json.RawMessage(`{"schema_id":"default","traits":{"bar":"baz"}}`),
+		)
+		id := created.Get("id").String()
+		require.NotEmpty(t, id)
+
+		res := send(t, "PATCH", "/identities/"+id, http.StatusOK,
+			json.RawMessage(`[{"op":"add","path":"/region","value":"us-east"}]`),
+		)
+		assert.Equal(t, "us-east", res.Get("region").String(), "%s", res.Raw)
+	})
+
+	t.Run("case=PATCH /admin/identities/{id} rejects remove on /region", func(t *testing.T) {
+		// Create an identity with a region.
+		created := send(t, "POST", "/identities", http.StatusCreated,
+			json.RawMessage(`{"schema_id":"default","traits":{"bar":"baz"},"region":"eu-central"}`),
+		)
+		id := created.Get("id").String()
+		require.NotEmpty(t, id)
+
+		// remove is not allowed on /region: callers must always set the region
+		// explicitly via add/replace.
+		send(t, "PATCH", "/identities/"+id, http.StatusBadRequest,
+			json.RawMessage(`[{"op":"remove","path":"/region"}]`),
+		)
+	})
+
+	t.Run("case=PATCH /admin/identities/{id} rejects move on /region", func(t *testing.T) {
+		created := send(t, "POST", "/identities", http.StatusCreated,
+			json.RawMessage(`{"schema_id":"default","traits":{"bar":"baz"},"region":"eu-central"}`),
+		)
+		id := created.Get("id").String()
+		require.NotEmpty(t, id)
+
+		// move is not in the op-allowlist; expect a 400.
+		send(t, "PATCH", "/identities/"+id, http.StatusBadRequest,
+			json.RawMessage(`[{"op":"move","from":"/region","path":"/traits/x"}]`),
+		)
+	})
+
+	t.Run("case=PATCH /admin/identities/{id} rejects invalid region value", func(t *testing.T) {
+		created := send(t, "POST", "/identities", http.StatusCreated,
+			json.RawMessage(`{"schema_id":"default","traits":{"bar":"baz"},"region":"eu-central"}`),
+		)
+		id := created.Get("id").String()
+		require.NotEmpty(t, id)
+
+		send(t, "PATCH", "/identities/"+id, http.StatusBadRequest,
+			json.RawMessage(`[{"op":"replace","path":"/region","value":"mars"}]`),
+		)
+	})
+
+	t.Run("case=PUT /admin/identities/{id} updates region", func(t *testing.T) {
+		// Create with region us-east, then PUT with region eu-central.
+		created := send(t, "POST", "/identities", http.StatusCreated,
+			json.RawMessage(`{"schema_id":"default","traits":{"bar":"baz"},"region":"us-east"}`),
+		)
+		id := created.Get("id").String()
+		require.NotEmpty(t, id)
+
+		res := send(t, "PUT", "/identities/"+id, http.StatusOK,
+			json.RawMessage(`{"schema_id":"default","traits":{"bar":"qux"},"state":"active","region":"eu-central"}`),
+		)
+		assert.Equal(t, "eu-central", res.Get("region").String(), "%s", res.Raw)
+	})
+
+	t.Run("case=PUT /admin/identities/{id} rejects invalid region value", func(t *testing.T) {
+		created := send(t, "POST", "/identities", http.StatusCreated,
+			json.RawMessage(`{"schema_id":"default","traits":{"bar":"baz"},"region":"us-east"}`),
+		)
+		id := created.Get("id").String()
+		require.NotEmpty(t, id)
+
+		send(t, "PUT", "/identities/"+id, http.StatusBadRequest,
+			json.RawMessage(`{"schema_id":"default","traits":{"bar":"qux"},"state":"active","region":"mars"}`),
+		)
+	})
+
+	t.Run("case=PATCH /admin/identities/{id} mixed /region and /traits ops", func(t *testing.T) {
+		// applyRegionPatchOps must extract /region ops and forward the
+		// remaining ops to ApplyJSONPatch unchanged. Both updates must apply.
+		created := send(t, "POST", "/identities", http.StatusCreated,
+			json.RawMessage(`{"schema_id":"default","traits":{"bar":"baz"},"region":"eu-central"}`),
+		)
+		id := created.Get("id").String()
+		require.NotEmpty(t, id)
+
+		res := send(t, "PATCH", "/identities/"+id, http.StatusOK,
+			json.RawMessage(`[
+				{"op":"replace","path":"/region","value":"us-west"},
+				{"op":"replace","path":"/traits/bar","value":"qux"}
+			]`),
+		)
+		assert.Equal(t, "us-west", res.Get("region").String(), "%s", res.Raw)
+		assert.Equal(t, "qux", res.Get("traits.bar").String(), "%s", res.Raw)
+	})
+
+	t.Run("case=POST /admin/identities rejects invalid region value", func(t *testing.T) {
+		// The handler must validate region.Region.Valid() at the API boundary so
+		// callers get a 400 even when no project context is available downstream.
+		send(t, "POST", "/identities", http.StatusBadRequest,
+			json.RawMessage(`{"schema_id":"default","traits":{"bar":"baz"},"region":"mars"}`),
+		)
+	})
+
+	t.Run("case=PATCH /admin/identities batch rejects invalid region value", func(t *testing.T) {
+		// Batch import shares identityFromCreateIdentityBody, so a bogus region
+		// in any patch entry must short-circuit the whole request as 400.
+		send(t, "PATCH", "/identities", http.StatusBadRequest,
+			json.RawMessage(`{"identities":[{"create":{"schema_id":"default","traits":{"bar":"baz"},"region":"mars"}}]}`),
+		)
+	})
+
 }

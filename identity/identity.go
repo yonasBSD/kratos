@@ -21,6 +21,7 @@ import (
 	"github.com/ory/kratos/cipher"
 	"github.com/ory/kratos/driver/config"
 	"github.com/ory/x/pagination/keysetpagination"
+	"github.com/ory/x/region"
 	"github.com/ory/x/sqlxx"
 )
 
@@ -139,6 +140,10 @@ type Identity struct {
 	UpdatedAt      time.Time     `json:"updated_at" db:"updated_at"`
 	NID            uuid.UUID     `json:"-"  faker:"-" db:"nid"`
 	OrganizationID uuid.NullUUID `json:"organization_id,omitempty"  faker:"-" db:"organization_id"`
+
+	// Region is the Ory Network region this identity is homed in. Set by
+	// the multi-region persister; empty on OSS and single-region deployments.
+	Region region.Region `json:"region,omitempty" db:"-"`
 }
 
 func (i *Identity) PageToken() keysetpagination.PageToken {

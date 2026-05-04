@@ -119,6 +119,56 @@ func Test_buildInsertQueryArgs(t *testing.T) {
 	})
 }
 
+func Test_buildInsertQueryArgs_ExtraColumns(t *testing.T) {
+	ctx := context.Background()
+	t.Run("case=testModel", func(t *testing.T) {
+		models := makeModels[testModel]()
+		opts := &createOpts{
+			dialect:      "other",
+			quoter:       testQuoter{},
+			mapper:       reflectx.NewMapper("db"),
+			extraColumns: []identity.ExtraColumn{{K: "crdb_region", V: "gcp-europe-west3"}},
+		}
+		args := buildInsertQueryArgs(ctx, models, opts)
+		snapshotx.SnapshotT(t, args)
+
+		assert.Contains(t, args.ColumnsDecl, `"crdb_region"`)
+		assert.Contains(t, args.Placeholders, "?")
+	})
+}
+
+func Test_buildInsertQueryValues_ExtraColumns(t *testing.T) {
+	t.Run("case=testModel", func(t *testing.T) {
+		model := &testModel{
+			String: "string",
+			Int:    42,
+			Traits: []byte(`{"foo": "bar"}`),
+		}
+
+		frozenTime := time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC)
+		opts := &createOpts{
+			dialect:      "other",
+			mapper:       reflectx.NewMapper("db"),
+			quoter:       testQuoter{},
+			now:          func() time.Time { return frozenTime },
+			extraColumns: []identity.ExtraColumn{{K: "crdb_region", V: "gcp-europe-west3"}},
+		}
+
+		// columns includes the extra column name, mirroring what buildInsertQueryArgs returns.
+		values, err := buildInsertQueryValues(
+			[]string{"created_at", "updated_at", "id", "string", "int", "null_time_ptr", "traits", "crdb_region"},
+			[]*testModel{model},
+			opts,
+		)
+		require.NoError(t, err)
+
+		// The last value should be the extra column value.
+		// 7 model fields + 1 extra column = 8 total.
+		require.Len(t, values, 8)
+		assert.Equal(t, "gcp-europe-west3", values[len(values)-1])
+	})
+}
+
 func Test_buildInsertQueryValues(t *testing.T) {
 	t.Run("case=testModel", func(t *testing.T) {
 		model := &testModel{

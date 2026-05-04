@@ -33,6 +33,7 @@ import (
 	"github.com/ory/x/decoderx"
 	"github.com/ory/x/fetcher"
 	"github.com/ory/x/otelx"
+	"github.com/ory/x/region"
 	"github.com/ory/x/sqlxx"
 )
 
@@ -474,6 +475,10 @@ func (s *Strategy) newIdentityFromClaims(ctx context.Context, claims *Claims, pr
 		return nil, nil, err
 	}
 
+	if err = setRegion(evaluated, i); err != nil {
+		return nil, nil, err
+	}
+
 	va, err := s.extractVerifiedAddresses(evaluated)
 	if err != nil {
 		return nil, nil, err
@@ -534,6 +539,24 @@ func (s *Strategy) setMetadata(evaluated string, i *identity.Identity, m Metadat
 		i.MetadataAdmin = []byte(metadata.Raw)
 	}
 
+	return nil
+}
+
+// setRegion applies identity.region from the Jsonnet mapper to i. Absent
+// or empty leaves Region unchanged so the persister's fallback chain runs.
+func setRegion(evaluated string, ident *identity.Identity) error {
+	r := gjson.Get(evaluated, "identity.region")
+	if !r.Exists() {
+		return nil
+	}
+	if r.Type != gjson.String {
+		return errors.WithStack(herodot.ErrMisconfiguration().WithReasonf("OpenID Connect Jsonnet mapper did not return a string for key identity.region. Please check your Jsonnet code!"))
+	}
+	candidate := region.Region(r.String())
+	if !candidate.Valid() {
+		return errors.WithStack(region.NewErrInvalid())
+	}
+	ident.Region = candidate
 	return nil
 }
 

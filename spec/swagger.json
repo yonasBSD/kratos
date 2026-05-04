@@ -4275,6 +4275,21 @@
             "$ref": "#/definitions/recoveryIdentityAddress"
           }
         },
+        "region": {
+          "description": "Region is the Ory Network region this identity will be created in.\nOptional; defaults to the project home region if omitted. Only effective\non the Ory Network.\neu-central EUCentral\nasia-northeast AsiaNorthEast\nus-east USEast\nus-west USWest\neu EU\nasia Asia\nus US\nglobal Global",
+          "type": "string",
+          "enum": [
+            "eu-central",
+            "asia-northeast",
+            "us-east",
+            "us-west",
+            "eu",
+            "asia",
+            "us",
+            "global"
+          ],
+          "x-go-enum-desc": "eu-central EUCentral\nasia-northeast AsiaNorthEast\nus-east USEast\nus-west USWest\neu EU\nasia Asia\nus US\nglobal Global"
+        },
         "schema_id": {
           "description": "SchemaID is the ID of the JSON Schema to be used for validating the identity's traits.",
           "type": "string"
@@ -4552,6 +4567,21 @@
             "$ref": "#/definitions/recoveryIdentityAddress"
           },
           "x-omitempty": true
+        },
+        "region": {
+          "description": "Region is the Ory Network region this identity is homed in. Set by\nthe multi-region persister; empty on OSS and single-region deployments.\neu-central EUCentral\nasia-northeast AsiaNorthEast\nus-east USEast\nus-west USWest\neu EU\nasia Asia\nus US\nglobal Global",
+          "type": "string",
+          "enum": [
+            "eu-central",
+            "asia-northeast",
+            "us-east",
+            "us-west",
+            "eu",
+            "asia",
+            "us",
+            "global"
+          ],
+          "x-go-enum-desc": "eu-central EUCentral\nasia-northeast AsiaNorthEast\nus-east USEast\nus-west USWest\neu EU\nasia Asia\nus US\nglobal Global"
         },
         "schema_id": {
           "description": "SchemaID is the ID of the JSON Schema to be used for validating the identity's traits.",
@@ -6578,6 +6608,21 @@
         "metadata_public": {
           "description": "Store metadata about the identity which the identity itself can see when calling for example the\nsession endpoint. Do not store sensitive information (e.g. credit score) about the identity in this field.",
           "type": "object"
+        },
+        "region": {
+          "description": "Region is the Ory Network region this identity is homed in. Optional;\nomit to leave the current region unchanged.\neu-central EUCentral\nasia-northeast AsiaNorthEast\nus-east USEast\nus-west USWest\neu EU\nasia Asia\nus US\nglobal Global",
+          "type": "string",
+          "enum": [
+            "eu-central",
+            "asia-northeast",
+            "us-east",
+            "us-west",
+            "eu",
+            "asia",
+            "us",
+            "global"
+          ],
+          "x-go-enum-desc": "eu-central EUCentral\nasia-northeast AsiaNorthEast\nus-east USEast\nus-west USWest\neu EU\nasia Asia\nus US\nglobal Global"
         },
         "schema_id": {
           "description": "SchemaID is the ID of the JSON Schema to be used for validating the identity's traits. If set\nwill update the Identity's SchemaID.",

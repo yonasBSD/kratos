@@ -412,7 +412,7 @@ func (m *Manager) CreateIdentities(ctx context.Context, identities []*Identity, 
 		validIdentities = append(validIdentities, ident)
 	}
 
-	if err := m.r.PrivilegedIdentityPool().CreateIdentities(ctx, validIdentities...); err != nil {
+	if err := m.r.PrivilegedIdentityPool().CreateIdentities(ctx, validIdentities); err != nil {
 		if partialErr := new(CreateIdentitiesError); errors.As(err, &partialErr) {
 			createIdentitiesError.Merge(partialErr)
 		} else {

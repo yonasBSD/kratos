@@ -341,7 +341,7 @@ func TestLoginCodeStrategy(t *testing.T) {
 							Config:      sqlxx.JSONRawMessage(cf),
 						},
 					}
-					require.NoError(t, reg.PrivilegedIdentityPool().CreateIdentities(ctx, i)) // We explicitly bypass identity validation to test the legacy code path
+					require.NoError(t, reg.PrivilegedIdentityPool().CreateIdentities(ctx, []*identity.Identity{i})) // We explicitly bypass identity validation to test the legacy code path
 					s := createLoginFlowWithIdentity(ctx, t, public, tc.apiType, i)
 					s.identityEmail = email
 					return s
@@ -380,7 +380,7 @@ func TestLoginCodeStrategy(t *testing.T) {
 						identity.CredentialsTypePassword: {Type: identity.CredentialsTypePassword, Identifiers: []string{email}, Config: sqlxx.JSONRawMessage(`{}`)},
 					}
 
-					require.NoError(t, reg.PrivilegedIdentityPool().CreateIdentities(ctx, i)) // We explicitly bypass identity validation to test the legacy code path
+					require.NoError(t, reg.PrivilegedIdentityPool().CreateIdentities(ctx, []*identity.Identity{i})) // We explicitly bypass identity validation to test the legacy code path
 					s := createLoginFlowWithIdentity(ctx, t, public, tc.apiType, i)
 					s.identityEmail = email
 					run(t, s)
@@ -396,7 +396,7 @@ func TestLoginCodeStrategy(t *testing.T) {
 					i.NID = x.NewUUID()
 					email := testhelpers.RandomEmail()
 					i.Traits = identity.Traits(fmt.Sprintf(`{"tos": true, "email": "%s"}`, email))
-					require.NoError(t, reg.PrivilegedIdentityPool().CreateIdentities(ctx, i)) // We explicitly bypass identity validation to test the legacy code path
+					require.NoError(t, reg.PrivilegedIdentityPool().CreateIdentities(ctx, []*identity.Identity{i})) // We explicitly bypass identity validation to test the legacy code path
 					s := createLoginFlowWithIdentity(ctx, t, public, tc.apiType, i)
 					s.identityEmail = email
 					// submit email
@@ -466,7 +466,7 @@ func TestLoginCodeStrategy(t *testing.T) {
 						Config:      sqlxx.JSONRawMessage(`{"address_type": "sms"}`),
 					},
 				}
-				require.NoError(t, reg.PrivilegedIdentityPool().CreateIdentities(ctx, i))
+				require.NoError(t, reg.PrivilegedIdentityPool().CreateIdentities(ctx, []*identity.Identity{i}))
 				t.Cleanup(func() {
 					require.NoError(t, reg.PrivilegedIdentityPool().DeleteIdentity(ctx, i.ID))
 				})

@@ -700,15 +700,17 @@ func (p *IdentityPersister) CreateIdentity(ctx context.Context, ident *identity.
 			attribute.Stringer("network.id", p.NetworkID(ctx))))
 	defer otelx.End(span, &err)
 
-	return p.CreateIdentities(ctx, ident)
+	return p.CreateIdentities(ctx, []*identity.Identity{ident})
 }
 
-func (p *IdentityPersister) CreateIdentities(ctx context.Context, identities ...*identity.Identity) (err error) {
+func (p *IdentityPersister) CreateIdentities(ctx context.Context, identities []*identity.Identity, opts ...identity.CreateIdentitiesModifier) (err error) {
 	ctx, span := p.r.Tracer(ctx).Tracer().Start(ctx, "persistence.sql.CreateIdentities",
 		trace.WithAttributes(
 			attribute.Int("identities.count", len(identities)),
 			attribute.Stringer("network.id", p.NetworkID(ctx))))
 	defer otelx.End(span, &err)
+
+	options := identity.NewCreateIdentitiesOptions(opts)
 
 	for _, ident := range identities {
 		ident.NID = p.NetworkID(ctx)
@@ -749,11 +751,14 @@ func (p *IdentityPersister) CreateIdentities(ctx context.Context, identities ...
 		partialErr = nil
 		createdIdentities := make([]*identity.Identity, 0, len(identities))
 
-		var opts []batch.CreateOpts
-		if len(identities) > 1 {
-			opts = append(opts, batch.WithPartialInserts)
+		var batchOpts []batch.CreateOpts
+		if extras := options.ExtraColumns; len(extras) > 0 {
+			batchOpts = append(batchOpts, batch.WithExtraColumns(extras))
 		}
-		if err := batch.Create(ctx, conn, identities, opts...); err != nil {
+		if len(identities) > 1 {
+			batchOpts = append(batchOpts, batch.WithPartialInserts)
+		}
+		if err := batch.Create(ctx, conn, identities, batchOpts...); err != nil {
 			if partialErr := new(batch.PartialConflictError[identity.Identity]); errors.As(err, &partialErr) {
 				for _, k := range partialErr.Failed {
 					failedIdentityIDs[k.ID] = struct{ created bool }{false}
@@ -1057,6 +1062,10 @@ func (p *IdentityPersister) getCredentialTypeIDs(ctx context.Context, credential
 }
 
 func (p *IdentityPersister) ListIdentities(ctx context.Context, params identity.ListIdentityParameters) (_ []identity.Identity, nextPage *keysetpagination.Paginator, err error) {
+	if (params.ColumnsTransformer == nil) != (params.RowScanner == nil) {
+		return nil, nil, errors.New("ListIdentityParameters: ColumnsTransformer and RowScanner must be set together")
+	}
+
 	paginator := keysetpagination.GetPaginator(append(
 		params.KeySetPagination,
 		keysetpagination.WithDefaultToken(identity.DefaultPageToken()),
@@ -1152,6 +1161,9 @@ func (p *IdentityPersister) ListIdentities(ctx context.Context, params identity.
 		}
 
 		columns := popx.DBColumns[identity.Identity](&popx.AliasQuoter{Alias: "identities", Quoter: con.Dialect})
+		if params.ColumnsTransformer != nil {
+			columns = params.ColumnsTransformer(columns)
+		}
 
 		query := fmt.Sprintf(`
 		SELECT DISTINCT %s
@@ -1164,7 +1176,12 @@ func (p *IdentityPersister) ListIdentities(ctx context.Context, params identity.
 			columns,
 			joins, wheres, limit)
 
-		if err := con.RawQuery(query, args...).All(&is); err != nil {
+		if params.RowScanner != nil {
+			is, err = params.RowScanner(con, query, args)
+			if err != nil {
+				return sqlcon.HandleError(err)
+			}
+		} else if err := con.RawQuery(query, args...).All(&is); err != nil {
 			return sqlcon.HandleError(err)
 		}
 

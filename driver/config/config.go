@@ -42,6 +42,7 @@ import (
 	"github.com/ory/x/jsonschemax"
 	"github.com/ory/x/logrusx"
 	"github.com/ory/x/otelx"
+	"github.com/ory/x/region"
 	"github.com/ory/x/watcherx"
 )
 
@@ -190,6 +191,7 @@ const (
 	ViperKeyPasskeyRPDisplayName                             = "selfservice.methods.passkey.config.rp.display_name"
 	ViperKeyPasskeyRPID                                      = "selfservice.methods.passkey.config.rp.id"
 	ViperKeyPasskeyRPOrigins                                 = "selfservice.methods.passkey.config.rp.origins"
+	ViperKeyOrganizations                                    = "selfservice.methods.b2b.config.organizations"
 	ViperKeyOAuth2ProviderURL                                = "oauth2_provider.url"
 	ViperKeyOAuth2ProviderHeader                             = "oauth2_provider.headers"
 	ViperKeyOAuth2ProviderOverrideReturnTo                   = "oauth2_provider.override_return_to"
@@ -1529,6 +1531,19 @@ func (p *Config) PasskeyConfig(ctx context.Context) *webauthn.Config {
 		},
 		EncodeUserIDAsString: false,
 	}
+}
+
+type Organization struct {
+	ID            uuid.UUID     `koanf:"id"`
+	Domains       []string      `koanf:"domains"`
+	DefaultRegion region.Region `koanf:"default_region"`
+}
+
+func (p *Config) Organizations(ctx context.Context) (orgs []Organization) {
+	if err := p.GetProvider(ctx).Unmarshal(ViperKeyOrganizations, &orgs); err != nil {
+		return nil
+	}
+	return orgs
 }
 
 func (p *Config) HasherPasswordHashingAlgorithm(ctx context.Context) string {
