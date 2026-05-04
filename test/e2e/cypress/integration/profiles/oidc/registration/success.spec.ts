@@ -123,6 +123,7 @@ context("Social Sign Up Successes", () => {
         )
       })
 
+      // playwright:migrated
       it("should be able to sign up with complete data", () => {
         const email = gen.email()
 

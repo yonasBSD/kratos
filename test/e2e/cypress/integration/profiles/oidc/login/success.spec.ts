@@ -31,6 +31,7 @@ context("Social Sign In Successes", () => {
         cy.clearAllCookies()
       })
 
+      // playwright:migrated
       it("should be able to sign up, sign out, and then sign in", () => {
         const email = gen.email()
         cy.registerOidc({ app, email, website, route: registration })
