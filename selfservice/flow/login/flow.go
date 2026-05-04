@@ -6,6 +6,7 @@ package login
 import (
 	"cmp"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/url"
@@ -154,6 +155,23 @@ type Flow struct {
 	// for this flow. This value can be set by the user when creating the flow and
 	// should be retained when the flow is saved or converted to another flow.
 	IdentitySchema flow.IdentitySchema `json:"identity_schema,omitempty" faker:"-" db:"identity_schema_id"`
+
+	// TestFlow marks this flow as an admin-created dry-run OIDC test. Test
+	// flows short-circuit the OIDC callback: no identity is persisted and no
+	// session is issued. The captured debug data is returned via the derived
+	// TestContext field below.
+	//
+	// Nullable so that existing rows created before the column was added read
+	// as a SQL NULL (effectively false); see IsTest.
+	TestFlow sql.NullBool `json:"-" faker:"-" db:"test_flow"`
+
+	// TestContext is the derived API view of test-mode data. It is populated
+	// from InternalContext["test"] during marshal and is nil for regular
+	// login flows. See test_context.go.
+	//
+	// required: false
+	// readOnly: true
+	TestContext *TestContext `json:"test_context,omitempty" faker:"-" db:"-"`
 }
 
 var (
@@ -241,7 +259,24 @@ func (f *Flow) EnsureInternalContext() {
 func (f Flow) MarshalJSON() ([]byte, error) {
 	type local Flow
 	f.SetReturnTo()
+	// Populate the derived TestContext field for test-mode flows so the
+	// admin UI sees provider_id and (once captured) debug_payload.
+	if err := (&f).LoadTestContext(); err != nil {
+		return nil, err
+	}
 	return json.Marshal(local(f))
+}
+
+// UnmarshalJSON drops any incoming test_context. The field is derived from
+// InternalContext and must only be set via LoadTestContext, otherwise a caller
+// submitting a Flow blob could forge a debug payload.
+func (f *Flow) UnmarshalJSON(data []byte) error {
+	type local Flow
+	if err := json.Unmarshal(data, (*local)(f)); err != nil {
+		return err
+	}
+	f.TestContext = nil
+	return nil
 }
 
 func (f *Flow) SetReturnTo() {

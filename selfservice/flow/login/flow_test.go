@@ -6,6 +6,7 @@ package login_test
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -201,6 +202,25 @@ func TestFlowEncodeJSON(t *testing.T) {
 	assert.EqualValues(t, "", gjson.Get(jsonx.TestMarshalJSONString(t, &login.Flow{RequestURL: "https://foo.bar?foo=bar"}), "return_to").String())
 	assert.EqualValues(t, "/bar", gjson.Get(jsonx.TestMarshalJSONString(t, &login.Flow{RequestURL: "https://foo.bar?return_to=/bar"}), "return_to").String())
 	assert.EqualValues(t, "/bar", gjson.Get(jsonx.TestMarshalJSONString(t, login.Flow{RequestURL: "https://foo.bar?return_to=/bar"}), "return_to").String())
+}
+
+func TestFlowTestContextNotUnmarshalable(t *testing.T) {
+	t.Parallel()
+
+	// test_context is a derived field populated from internal_context during
+	// MarshalJSON. It must not be settable via incoming JSON, otherwise an
+	// attacker who can submit a Flow blob could forge a debug payload.
+	raw := []byte(`{
+		"id": "00000000-0000-0000-0000-000000000000",
+		"test_context": {
+			"provider_id": "forged",
+			"debug_payload": {"id_token_claims": {"sub": "forged"}}
+		}
+	}`)
+
+	var f login.Flow
+	require.NoError(t, json.Unmarshal(raw, &f))
+	assert.Nil(t, f.TestContext, "test_context must not be populated from JSON input")
 }
 
 func TestFlowDontOverrideReturnTo(t *testing.T) {

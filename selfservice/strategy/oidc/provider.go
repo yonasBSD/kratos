@@ -12,11 +12,10 @@ import (
 
 	"github.com/dghubble/oauth1"
 	"github.com/pkg/errors"
-
-	"github.com/ory/herodot"
-
 	"golang.org/x/oauth2"
 
+	"github.com/ory/herodot"
+	"github.com/ory/kratos/selfservice/strategy/oidc/oidcerr"
 	"github.com/ory/kratos/x"
 )
 
@@ -118,10 +117,10 @@ func (l *Locale) UnmarshalJSON(data []byte) error {
 // Validate checks if the claims are valid.
 func (c *Claims) Validate() error {
 	if c.Subject == "" {
-		return errors.WithStack(herodot.ErrUpstreamError().WithReasonf("provider did not return a subject"))
+		return oidcerr.Wrap(oidcerr.StepClaimsDecode, errors.WithStack(herodot.ErrUpstreamError().WithReasonf("provider did not return a subject")))
 	}
 	if c.Issuer == "" {
-		return errors.WithStack(herodot.ErrUpstreamError().WithReasonf("issuer not set in claims"))
+		return oidcerr.Wrap(oidcerr.StepClaimsDecode, errors.WithStack(herodot.ErrUpstreamError().WithReasonf("issuer not set in claims")))
 	}
 	return nil
 }

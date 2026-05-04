@@ -1347,6 +1347,63 @@
         "x-ory-ratelimit-bucket": "kratos-admin-low"
       }
     },
+    "/admin/test-login-flows": {
+      "post": {
+        "description": "Creates a dry-run OIDC test login flow pre-scoped to one provider. The\nreturned flow carries a single-submit UI and a CSRF bearer token. No\nidentity is persisted and no session is issued when the flow completes;\nthe captured debug data is returned in the flow's test_context.",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "schemes": [
+          "http",
+          "https"
+        ],
+        "tags": [
+          "identity"
+        ],
+        "summary": "Create a test OIDC login flow",
+        "operationId": "createTestLoginFlow",
+        "parameters": [
+          {
+            "name": "Body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/createTestLoginFlowBody"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "loginFlow",
+            "schema": {
+              "$ref": "#/definitions/loginFlow"
+            }
+          },
+          "400": {
+            "description": "errorGeneric",
+            "schema": {
+              "$ref": "#/definitions/errorGeneric"
+            }
+          },
+          "404": {
+            "description": "errorGeneric",
+            "schema": {
+              "$ref": "#/definitions/errorGeneric"
+            }
+          },
+          "default": {
+            "description": "errorGeneric",
+            "schema": {
+              "$ref": "#/definitions/errorGeneric"
+            }
+          }
+        },
+        "x-ory-ratelimit-bucket": "kratos-admin-low"
+      }
+    },
     "/health/alive": {
       "get": {
         "description": "This endpoint returns a 200 status code when the HTTP server is up running.\nThis status does currently not include checks whether the database connection is working.\n\nIf the service supports TLS Edge Termination, this endpoint does not require the\n`X-Forwarded-Proto` header to be set.\n\nBe aware that if you are running multiple nodes of this service, the health status will never\nrefer to the cluster state, only to a single instance.",
@@ -1998,6 +2055,65 @@
             }
           },
           "410": {
+            "description": "errorGeneric",
+            "schema": {
+              "$ref": "#/definitions/errorGeneric"
+            }
+          },
+          "default": {
+            "description": "errorGeneric",
+            "schema": {
+              "$ref": "#/definitions/errorGeneric"
+            }
+          }
+        },
+        "x-ory-ratelimit-bucket": "kratos-public-high"
+      }
+    },
+    "/self-service/login/test": {
+      "delete": {
+        "description": "Deletes a dry-run OIDC test login flow. A flow whose debug payload has\nbeen captured requires the HMAC cookie set by the OIDC callback; a flow\nstill in the initial choose-method state is deletable with just the flow\nID (it carries no PII, and the admin may want to abandon it).",
+        "schemes": [
+          "http",
+          "https"
+        ],
+        "tags": [
+          "frontend"
+        ],
+        "summary": "Delete a test OIDC login flow",
+        "operationId": "deleteTestLoginFlow",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "ID of the test login flow to delete.",
+            "name": "id",
+            "in": "query",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "HTTP Cookies. A captured test flow requires the ory_kratos_test_flow\ncookie set by the OIDC callback; a flow still in the initial\nchoose-method state does not.",
+            "name": "Cookie",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "204": {
+            "$ref": "#/responses/emptyResponse"
+          },
+          "400": {
+            "description": "errorGeneric",
+            "schema": {
+              "$ref": "#/definitions/errorGeneric"
+            }
+          },
+          "403": {
+            "description": "errorGeneric",
+            "schema": {
+              "$ref": "#/definitions/errorGeneric"
+            }
+          },
+          "404": {
             "description": "errorGeneric",
             "schema": {
               "$ref": "#/definitions/errorGeneric"
@@ -4357,6 +4473,20 @@
         }
       }
     },
+    "createTestLoginFlowBody": {
+      "type": "object",
+      "title": "Request body for creating a test OIDC login flow.",
+      "required": [
+        "provider_id"
+      ],
+      "properties": {
+        "provider_id": {
+          "description": "ID of the OIDC provider to test. Must match a provider configured on\nthe project that serves this request.",
+          "type": "string",
+          "maxLength": 255
+        }
+      }
+    },
     "deleteMySessionsCount": {
       "description": "Deleted Session Count",
       "type": "object",
@@ -5310,6 +5440,9 @@
         "state": {
           "description": "State represents the state of this request:\n\nchoose_method: ask the user to choose a method to sign in with\nsent_email: the email has been sent to the user\npassed_challenge: the request was successful and the login challenge was passed."
         },
+        "test_context": {
+          "$ref": "#/definitions/loginFlowTestContext"
+        },
         "transient_payload": {
           "description": "TransientPayload is used to pass data from the login to hooks and email templates",
           "type": "object"
@@ -5331,6 +5464,100 @@
       "description": "The state represents the state of the login flow.\n\nchoose_method: ask the user to choose a method (e.g. login account via email)\nsent_email: the email has been sent to the user\npassed_challenge: the request was successful and the login challenge was passed.",
       "type": "string",
       "title": "Login Flow State"
+    },
+    "loginFlowTestContext": {
+      "description": "Admin-test extension of a login flow. Populated only for flows created by\nthe admin test endpoint; included in the flow's API response so the admin\nUI can render the pre-scoped provider and (once captured) the debug\nround-trip result.",
+      "type": "object",
+      "required": [
+        "provider_id"
+      ],
+      "properties": {
+        "debug_payload": {
+          "$ref": "#/definitions/loginFlowTestDebugPayload"
+        },
+        "provider_id": {
+          "description": "The ID of the OIDC provider this test flow targets.",
+          "type": "string"
+        }
+      }
+    },
+    "loginFlowTestDebugPayload": {
+      "description": "Contains the parsed claims, the Jsonnet mapper input and output, and any\nschema validation errors. Bearer tokens (id_token, access_token,\nrefresh_token) are intentionally excluded to limit the blast radius of\nthe debug payload leaking through audit logs or admin browsers.",
+      "type": "object",
+      "title": "Diagnostic payload captured during a test-mode OIDC round-trip.",
+      "properties": {
+        "error": {
+          "$ref": "#/definitions/loginFlowTestStepError"
+        },
+        "id_token_claims": {
+          "description": "Claims extracted from the ID token.",
+          "type": "object",
+          "additionalProperties": {}
+        },
+        "jsonnet_input": {
+          "description": "Input JSON that was fed into the Jsonnet mapper.",
+          "type": "object",
+          "additionalProperties": {}
+        },
+        "jsonnet_mapper_url": {
+          "description": "URL of the Jsonnet mapper that was executed on the claims.",
+          "type": "string"
+        },
+        "jsonnet_output": {
+          "description": "Output JSON returned by the Jsonnet mapper.",
+          "type": "object",
+          "additionalProperties": {}
+        },
+        "jsonnet_stderr": {
+          "description": "Anything the Jsonnet mapper wrote to standard error.",
+          "type": "string"
+        },
+        "schema_validation_errors": {
+          "description": "Identity-schema validation errors produced from the mapped traits.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/loginFlowTestSchemaValidationError"
+          }
+        },
+        "userinfo": {
+          "description": "Claims returned from the provider's userinfo endpoint, if any.",
+          "type": "object",
+          "additionalProperties": {}
+        }
+      }
+    },
+    "loginFlowTestSchemaValidationError": {
+      "description": "One identity-schema validation failure recorded while evaluating the\ntraits produced by the Jsonnet mapper.",
+      "type": "object",
+      "properties": {
+        "message": {
+          "description": "Human-readable description of the validation failure.",
+          "type": "string"
+        },
+        "path": {
+          "description": "JSON pointer to the field that failed validation.",
+          "type": "string"
+        }
+      }
+    },
+    "loginFlowTestStepError": {
+      "description": "Populated when any step (token exchange, claims decode, Jsonnet\nevaluation, schema validation) cannot complete.",
+      "type": "object",
+      "title": "Classified failure of a step in an OIDC test round-trip.",
+      "properties": {
+        "message": {
+          "description": "Human-readable message describing the failure.",
+          "type": "string"
+        },
+        "reason": {
+          "description": "Short classification of the failure cause (for example,\n\"access_denied\" or \"traits_invalid\").",
+          "type": "string"
+        },
+        "step": {
+          "description": "Machine-readable identifier of the failed step (for example,\n\"token_exchange\" or \"schema_validate\").",
+          "type": "string"
+        }
+      }
     },
     "logoutFlow": {
       "description": "Logout Flow",

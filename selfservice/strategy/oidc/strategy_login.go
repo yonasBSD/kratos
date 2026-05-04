@@ -8,6 +8,7 @@ import (
 	"cmp"
 	"context"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/json"
 	"net/http"
 	"reflect"
@@ -31,6 +32,7 @@ import (
 	"github.com/ory/kratos/text"
 	"github.com/ory/kratos/ui/node"
 	"github.com/ory/kratos/x"
+	"github.com/ory/kratos/x/nosurfx"
 	"github.com/ory/x/otelx"
 	"github.com/ory/x/sqlcon"
 	"github.com/ory/x/sqlxx"
@@ -450,6 +452,16 @@ func (s *Strategy) Login(w http.ResponseWriter, r *http.Request, f *login.Flow, 
 	f.IDToken = p.IDToken
 	f.RawIDTokenNonce = p.IDTokenNonce
 	f.TransientPayload = p.TransientPayload
+
+	// Test flows use a flow-owned random UUID as the CSRF bearer (no browser
+	// cookie is involved in their creation). Verify it in constant time so
+	// that an attacker who discovers the flow ID alone cannot initiate a
+	// parallel OIDC round-trip against the flow.
+	if f.IsTest() {
+		if subtle.ConstantTimeCompare([]byte(p.CSRFToken), []byte(f.CSRFToken)) != 1 {
+			return nil, s.HandleError(ctx, w, r, f, "", nil, errors.WithStack(nosurfx.ErrInvalidCSRFToken()))
+		}
+	}
 
 	pid := p.Provider // this can come from both url query and post body
 	if pid == "" {

@@ -66,6 +66,7 @@ type (
 		ErrorHandlerProvider
 		sessiontokenexchange.PersistenceProvider
 		logrusx.Provider
+		TestStrategyProvider
 	}
 	HandlerProvider interface {
 		LoginHandler() *Handler
@@ -78,6 +79,9 @@ func NewHandler(d dependencies) *Handler { return &Handler{d: d} }
 func (h *Handler) RegisterPublicRoutes(public *httprouterx.RouterPublic) {
 	h.d.CSRFHandler().IgnorePath(RouteInitAPIFlow)
 	h.d.CSRFHandler().IgnorePath(RouteSubmitFlow)
+	// The test-login-flow delete endpoint is authorized by the HMAC cookie
+	// set on the OIDC callback, not the global nosurf middleware.
+	h.d.CSRFHandler().IgnorePath(RouteDeleteTestFlow)
 
 	public.GET(RouteInitBrowserFlow, h.createBrowserLoginFlow)
 	public.GET(RouteInitAPIFlow, h.createNativeLoginFlow)
@@ -85,6 +89,8 @@ func (h *Handler) RegisterPublicRoutes(public *httprouterx.RouterPublic) {
 
 	public.POST(RouteSubmitFlow, h.updateLoginFlow)
 	public.GET(RouteSubmitFlow, h.updateLoginFlow)
+
+	public.DELETE(RouteDeleteTestFlow, h.deleteTestLoginFlow)
 }
 
 func (h *Handler) RegisterAdminRoutes(admin *httprouterx.RouterAdmin) {
@@ -94,6 +100,8 @@ func (h *Handler) RegisterAdminRoutes(admin *httprouterx.RouterAdmin) {
 
 	admin.POST(RouteSubmitFlow, redir.RedirectToPublicRoute(h.d))
 	admin.GET(RouteSubmitFlow, redir.RedirectToPublicRoute(h.d))
+
+	admin.POST(RouteAdminCreateTestFlow, h.adminCreateTestLoginFlow)
 }
 
 type FlowOption func(f *Flow)
@@ -240,7 +248,7 @@ preLoginHook:
 				continue
 			default:
 				populateErr = errors.WithStack(
-					x.PseudoPanic.WithReasonf("A login strategy was expected to implement interface AAL1FormHydrator but did not: %s", s.ID()),
+					x.PseudoPanic.WithReason("A login strategy was expected to implement interface AAL1FormHydrator but did not."),
 				)
 			}
 		case identity.AuthenticatorAssuranceLevel2:
@@ -257,7 +265,7 @@ preLoginHook:
 				continue
 			default:
 				populateErr = errors.WithStack(
-					x.PseudoPanic.WithReasonf("A login strategy was expected to implement interface AAL2FormHydrator but did not: %s", s.ID()),
+					x.PseudoPanic.WithReason("A login strategy was expected to implement interface AAL2FormHydrator but did not."),
 				)
 			}
 		}
@@ -729,7 +737,28 @@ func (h *Handler) getLoginFlow(w http.ResponseWriter, r *http.Request) {
 	// Browser flows must include the CSRF token
 	//
 	// Resolves: https://github.com/ory/kratos/issues/1282
-	if ar.Type == flow.TypeBrowser && !nosurf.VerifyToken(h.d.GenerateCSRFToken(r), ar.CSRFToken) {
+	//
+	// Test flows have their own scheme:
+	//   - choose_method (uncaptured): public read. The flow carries no PII
+	//     and was admin-created with a server-minted token that the browser
+	//     never received, so a CSRF check would always fail.
+	//   - captured: require the CSRF cookie to match f.CSRFToken. The OIDC
+	//     callback regenerated the cookie+token pair, so only the browser
+	//     that completed the round trip can read the captured DebugPayload.
+	switch {
+	case ar.IsTest():
+		// TestContext is a derived field (loaded from internal_context); the
+		// SQL fetch above doesn't populate it.
+		if err := ar.LoadTestContext(); err != nil {
+			h.d.Writer().WriteError(w, r, err)
+			return
+		}
+		if ar.TestContext != nil && ar.TestContext.DebugPayload != nil &&
+			!nosurf.VerifyToken(h.d.GenerateCSRFToken(r), ar.CSRFToken) {
+			h.d.Writer().WriteError(w, r, errors.WithStack(herodot.ErrForbidden().WithReason("missing or invalid CSRF token")))
+			return
+		}
+	case ar.Type == flow.TypeBrowser && !nosurf.VerifyToken(h.d.GenerateCSRFToken(r), ar.CSRFToken):
 		h.d.Writer().WriteError(w, r, nosurfx.CSRFErrorReason(r, h.d))
 		return
 	}

@@ -397,6 +397,27 @@ nextStrategy:
 	return
 }
 
+// TestStrategy returns the OIDC strategy as a login.TestStrategy for
+// admin-created test login flows. Only the OIDC strategy implements the
+// test-mode single-provider UI. Returns nil if the OIDC strategy is not
+// registered or disabled in config; callers must handle that case as a
+// misconfiguration rather than crashing the process.
+func (m *RegistryDefault) TestStrategy(ctx context.Context) login.TestStrategy {
+	type testStrategy interface {
+		login.TestStrategy
+		login.Strategy
+	}
+	for _, strategy := range m.selfServiceStrategies() {
+		if s, ok := strategy.(testStrategy); ok {
+			if m.strategyLoginEnabled(ctx, s.ID().String()) {
+				return s
+			}
+		}
+	}
+
+	return nil
+}
+
 // supportsOrganizations checks if a strategy implements organization-based authentication.
 // Organization strategies manage their own enablement via provider configuration,
 // not via the strategy-enabled config flag, so they bypass the strategyLoginEnabled /
@@ -740,6 +761,7 @@ func (m *RegistryDefault) PrivilegedIdentityPool() identity.PrivilegedPool { ret
 func (m *RegistryDefault) FlowForTokenExchange() session.FlowForTokenExchange {
 	return m
 }
+
 func (m *RegistryDefault) GetFlowForTokenExchange(ctx context.Context, flowID uuid.UUID) (any, error) {
 	rf, err := m.RegistrationFlowPersister().GetRegistrationFlow(ctx, flowID)
 	if err == nil {
@@ -772,9 +794,11 @@ func (m *RegistryDefault) LoginCodePersister() code.LoginCodePersister          
 func (m *RegistryDefault) VerificationTokenPersister() link.VerificationTokenPersister {
 	return m.persister
 }
+
 func (m *RegistryDefault) VerificationCodePersister() code.VerificationCodePersister {
 	return m.persister
 }
+
 func (m *RegistryDefault) RegistrationCodePersister() code.RegistrationCodePersister {
 	return m.persister
 }

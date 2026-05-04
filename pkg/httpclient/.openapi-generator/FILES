@@ -30,6 +30,7 @@ docs/CreateFedcmFlowResponse.md
 docs/CreateIdentityBody.md
 docs/CreateRecoveryCodeForIdentityBody.md
 docs/CreateRecoveryLinkForIdentityBody.md
+docs/CreateTestLoginFlowBody.md
 docs/DeleteMySessionsCount.md
 docs/DeviceAuthnKey.md
 docs/ErrorAuthenticatorAssuranceLevelNotSatisfied.md
@@ -78,6 +79,10 @@ docs/IsReady503Response.md
 docs/JsonPatch.md
 docs/LoginFlow.md
 docs/LoginFlowState.md
+docs/LoginFlowTestContext.md
+docs/LoginFlowTestDebugPayload.md
+docs/LoginFlowTestSchemaValidationError.md
+docs/LoginFlowTestStepError.md
 docs/LogoutFlow.md
 docs/Message.md
 docs/MessageDispatch.md
@@ -181,6 +186,7 @@ model_create_fedcm_flow_response.go
 model_create_identity_body.go
 model_create_recovery_code_for_identity_body.go
 model_create_recovery_link_for_identity_body.go
+model_create_test_login_flow_body.go
 model_delete_my_sessions_count.go
 model_device_authn_key.go
 model_error_authenticator_assurance_level_not_satisfied.go
@@ -227,6 +233,10 @@ model_is_ready_503_response.go
 model_json_patch.go
 model_login_flow.go
 model_login_flow_state.go
+model_login_flow_test_context.go
+model_login_flow_test_debug_payload.go
+model_login_flow_test_schema_validation_error.go
+model_login_flow_test_step_error.go
 model_logout_flow.go
 model_message.go
 model_message_dispatch.go
